@@ -17,7 +17,7 @@
 # TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 # PERFORMANCE OF THIS SOFTWARE.
 #
-
+import dataclasses
 import os
 import sys
 from time import strftime, gmtime
@@ -46,6 +46,8 @@ from . import metadata
 from . import kindle
 from . import __version__
 
+KINDLE_PREVIEWER_APP_NAME = 'Kindle Previewer 3'
+
 
 def main(argv=None):
     global options
@@ -57,13 +59,14 @@ def main(argv=None):
     if sys.platform.startswith('win'):
         sources = set([source for arg in args for source in glob(escape(arg))])
     else:
-        sources = set(args)
+        sources = set([os.path.expanduser(arg) for arg in args])
     if len(sources) == 0:
         print('No matching files found.')
         return 1
     for source in sources:
         source = source.rstrip('\\').rstrip('/')
         options = copy(optionstemplate)
+        options.output = os.path.expanduser(options.output)
         checkOptions()
         if len(sources) > 1:
             print('Working on ' + source + '...')
@@ -888,9 +891,9 @@ def makeParser():
     customProfileOptions = OptionGroup(psr, "CUSTOM PROFILE")
     otherOptions = OptionGroup(psr, "OTHER")
 
-    mainOptions.add_option("-p", "--profile", action="store", dest="profile", default="KV",
+    mainOptions.add_option("-p", "--profile", action="store", dest="profile", default="OTHER",
                            help="Device profile (Available options: K1, K2, K34, K578, KDX, KPW, KV, KO, KoMT, KoG,"
-                                " KoGHD, KoA, KoAHD, KoAH2O, KoAO, KoF) [Default=KV]")
+                                " KoGHD, KoA, KoAHD, KoAH2O, KoAO, KoF) [Default=OTHER]")
     mainOptions.add_option("-m", "--manga-style", action="store_true", dest="righttoleft", default=False,
                            help="Manga style (right-to-left reading and splitting)")
     mainOptions.add_option("-q", "--hq", action="store_true", dest="hq", default=False,
@@ -963,6 +966,9 @@ def checkOptions():
             options.format = 'EPUB'
         elif options.profile in ['KDX']:
             options.format = 'CBZ'
+        else:
+            options.format = 'EPUB'
+
     if options.profile in ['K1', 'K2', 'K34', 'K578', 'KPW', 'KV', 'KO']:
         options.iskindle = True
     if options.white_borders:
@@ -1012,20 +1018,39 @@ def checkOptions():
     options.profileData = image.ProfileData.Profiles[options.profile]
 
 
-def checkTools(source):
+def get_kindlegen_path() -> str:
+    import platform
+    if platform.system() == 'Darwin':
+        kindlegen_path = f'/Applications/{KINDLE_PREVIEWER_APP_NAME}.app/Contents/lib/fc/bin/kindlegen'
+    elif platform.system() == 'Windows':
+        user_dir = os.environ['USERPROFILE']
+        kindlegen_path =  os.path.join(user_dir, f'AppData/Local/{KINDLE_PREVIEWER_APP_NAME}/lib/fc/bin/kindlegen.exe')
+    else:
+        kindlegen_path = os.environ.get('KINDLEGEN_PATH')
+
+    if os.path.exists(kindlegen_path):
+        return kindlegen_path
+
+    raise FileNotFoundError(f'Please install {KINDLE_PREVIEWER_APP_NAME} (Mac, Windows) or set KINDLEGEN_PATH')
+
+
+def check_tools(source):
     source = source.upper()
     if source.endswith('.CB7') or source.endswith('.7Z') or source.endswith('.RAR') or source.endswith('.CBR') or \
             source.endswith('.ZIP') or source.endswith('.CBZ'):
         process = Popen('7z', stdout=PIPE, stderr=STDOUT, stdin=PIPE, shell=True)
         process.communicate()
+        return_code = process.returncode
         if process.returncode != 0 and process.returncode != 7:
             print('ERROR: 7z is missing!')
             exit(1)
+
     if options.format == 'MOBI':
-        kindleGenExitCode = Popen('kindlegen -locale en', stdout=PIPE, stderr=STDOUT, stdin=PIPE, shell=True)
-        kindleGenExitCode.communicate()
-        if kindleGenExitCode.returncode != 0:
-            print('ERROR: KindleGen is missing!')
+        kindle_gen_path = get_kindlegen_path()
+        kindle_gen_exit_code = Popen(f'{kindle_gen_path} -locale en', stdout=PIPE, stderr=STDOUT, stdin=PIPE, shell=True)
+        kindle_gen_exit_code.communicate()
+        if kindle_gen_exit_code.returncode != 0:
+            print(f'ERROR {kindle_gen_exit_code.returncode}: KindleGen is missing, install Kindle Previewer')
             exit(1)
 
 
@@ -1036,6 +1061,7 @@ def checkPre(source):
             if tempdir.startswith('KCC-'):
                 rmtree(os.path.join(root, tempdir), True)
     # Make sure that target directory is writable
+    source = os.path.expanduser(source)
     if os.path.isdir(source):
         src = os.path.abspath(os.path.join(source, '..'))
     else:
@@ -1048,7 +1074,7 @@ def checkPre(source):
 
 
 def makeBook(source):
-    checkTools(source)
+    check_tools(source)
     checkPre(source)
     print("Preparing source images...")
     path = getWorkFolder(source)

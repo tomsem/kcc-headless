@@ -32,7 +32,7 @@ class ProfileData:
         0x00, 0x00, 0x00,
         0x55, 0x55, 0x55,
         0xaa, 0xaa, 0xaa,
-        0xff, 0xff, 0xff
+        0xff, 0xff, 0xff,
     ]
 
     Palette15 = [
@@ -107,6 +107,9 @@ class ComicPageParser:
         self.color = self.colorCheck()
         self.fill = self.fillCheck()
         self.splitCheck()
+
+    def is_wide(self):
+        return self.image.size[0]
 
     def getImageHistogram(self, image):
         histogram = image.histogram()
@@ -248,6 +251,8 @@ class ComicPage:
 
     def autocontrastImage(self):
         gamma = self.opt.gamma
+        if gamma <= 0.0:
+            return
         if gamma < 0.1:
             gamma = self.gamma
             if self.gamma != 1.0 and self.color:
